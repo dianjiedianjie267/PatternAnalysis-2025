@@ -25,16 +25,31 @@ We will report Dice score on a held-out test set and include a visual example
 (original slice + predicted mask overlay).
 
 ## 6. How to train
-1. Prepare the dataset under the OASIS path on the COMP3710 server (shared course dataset).
-2. Run:
- 
-   python train.py
+1. The brain MRI dataset for this assignment is already prepared on the COMP3710 cluster at:
+
+   /home/groups/comp3710/OASIS
+
+   It contains 2D PNG brain MRI slices and segmentation masks. The slices are already split by subject into:
+   - keras_png_slices_train / keras_png_slices_seg_train
+   - keras_png_slices_validate / keras_png_slices_seg_validate
+   - keras_png_slices_test / keras_png_slices_seg_test
+
+   So there is already a train / validate / test split with no patient leakage.
+
+2. To train on the cluster (from within a Python environment with PyTorch):
+
+        python train.py \
+            --data_root /home/groups/comp3710/OASIS \
+            --epochs 20 \
+            --batch_size 4 \
+            --lr 1e-3
 
 3. The training script will:
    - train a 2D U-Net for brain MRI tissue segmentation
    - save the best checkpoint to `best_model.pth`
-   - save a training curve plot as `training_curve.png`
+   - save a curve plot as `training_curve.png`
    - print validation Dice each epoch
+
 
 ## 7. How to run inference
 After training, run:
