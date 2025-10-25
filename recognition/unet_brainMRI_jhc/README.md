@@ -24,3 +24,27 @@ Training is supervised with ground truth labels.
 We will report Dice score on a held-out test set and include a visual example
 (original slice + predicted mask overlay).
 
+## 6. How to train
+1. Prepare the dataset under the OASIS path on the COMP3710 server (shared course dataset).
+2. Run:
+ 
+   python train.py
+
+3. The training script will:
+   - train a 2D U-Net for brain MRI tissue segmentation
+   - save the best checkpoint to `best_model.pth`
+   - save a training curve plot as `training_curve.png`
+   - print validation Dice each epoch
+
+## 7. How to run inference
+After training, run:
+
+    python predict.py
+
+This will:
+- load `best_model.pth`
+- run the trained network on a test MRI slice
+- generate `prediction_example.png`, which shows:
+  - the input MRI slice
+  - the ground truth mask
+  - the predicted mask
