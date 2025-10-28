@@ -1,116 +1,88 @@
+#!/usr/bin/env python3
 """
 predict.py
-Run inference with a trained UNet2D checkpoint and save a visualisation.
+Run inference with a trained UNet on one MRI slice and save the prediction.
 
-Typical usage on the COMP3710 cluster:
-
+Usage:
     python predict.py \
-        --data_root /home/groups/comp3710/OASIS \
-        --idx 0 \
-        --ckpt best_model.pth
-
-This script will:
-- load a trained checkpoint (best_model.pth)
-- grab one slice from the *test* split
-- run the model to get a predicted mask
-- save prediction_example.png showing:
-    (1) input MRI slice
-    (2) ground truth mask (if available)
-    (3) predicted mask
+        --data_root /path/to/OASIS \
+        --checkpoint best_model.pth \
+        --out prediction_example.png
 """
 
 import argparse
 import torch
 import matplotlib.pyplot as plt
-import numpy as np
 
 from dataset import OasisSliceDataset
-from modules import UNet2D
+from modules import UNet
 
+@torch.no_grad()
+def run_inference(data_root, checkpoint_path, out_path, device):
+    # 1. load dataset (use validate split for demo)
+    ds = OasisSliceDataset(data_root, split="validate")
+    if len(ds) == 0:
+        raise RuntimeError("No data found in validate split")
 
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Inference demo for brain MRI segmentation"
-    )
-    parser.add_argument(
-        "--data_root",
-        type=str,
-        required=True,
-        help="Path to the dataset root (e.g. /home/groups/comp3710/OASIS)",
-    )
-    parser.add_argument(
-        "--idx",
-        type=int,
-        default=0,
-        help="Which sample index from the test split to visualise.",
-    )
-    parser.add_argument(
-        "--ckpt",
-        type=str,
-        default="best_model.pth",
-        help="Checkpoint file to load (state_dict).",
-    )
-    return parser.parse_args()
+    # just take the first slice for demo
+    sample = ds[0]
+    img_t = sample["image"].unsqueeze(0).to(device)   # (1,1,H,W)
+    mask_t = sample["mask"].to(device)                # (H,W)
 
+    # 2. build model and load weights
+    model = UNet(in_channels=1, out_channels=1)
+    state = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state)
+    model.to(device)
+    model.eval()
 
-def run_inference(data_root, sample_idx, ckpt_path):
+    # 3. forward pass
+    logits = model(img_t)                # (1,1,H,W), raw logits
+    probs = torch.sigmoid(logits)        # (1,1,H,W)
+    pred_bin = (probs > 0.5).float()     # (1,1,H,W)
+
+    # 4. move to cpu numpy for plotting
+    img_np   = img_t[0,0].cpu().numpy()          # (H,W)
+    gt_np    = (mask_t > 0).float().cpu().numpy()# (H,W)
+    pred_np  = pred_bin[0,0].cpu().numpy()       # (H,W)
+
+    # 5. plot side-by-side
+    fig, axs = plt.subplots(1, 3, figsize=(9,3))
+    axs[0].imshow(img_np, cmap="gray")
+    axs[0].set_title("Input MRI")
+    axs[0].axis("off")
+
+    axs[1].imshow(gt_np, cmap="gray")
+    axs[1].set_title("Ground Truth")
+    axs[1].axis("off")
+
+    axs[2].imshow(pred_np, cmap="gray")
+    axs[2].set_title("Prediction")
+    axs[2].axis("off")
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=150)
+    print(f"[SAVE] wrote {out_path}")
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data_root", type=str, required=True,
+                        help="Path to OASIS root dir (with keras_png_slices_* etc.)")
+    parser.add_argument("--checkpoint", type=str, default="best_model.pth",
+                        help="Path to trained weights file")
+    parser.add_argument("--out", type=str, default="prediction_example.png",
+                        help="Output image (visualisation)")
+    args = parser.parse_args()
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"[INFO] Using device: {device}")
 
-    # Load test split
-    test_ds = OasisSliceDataset(root_dir=data_root, split="test")
-    sample = test_ds[sample_idx]
-
-    # Prepare input + GT
-    img = sample["image"].unsqueeze(0).to(device)  # (1,1,H,W)
-    mask_gt = sample["mask"].cpu().numpy() if "mask" in sample else None
-
-    # Load model
-    model = UNet2D(n_channels=1, n_classes=1).to(device)
-    state_dict = torch.load(ckpt_path, map_location=device)
-    model.load_state_dict(state_dict)
-    model.eval()
-
-    # Forward pass
-    with torch.no_grad():
-        logits = model(img)                # (1,1,H,W)
-        prob = torch.sigmoid(logits)       # (1,1,H,W)
-        pred_mask = (prob > 0.5).float().cpu().numpy()[0, 0, :, :]
-
-    # Visualise
-    plt.figure(figsize=(9, 3))
-
-    # panel 1: Input slice
-    plt.subplot(1, 3, 1)
-    plt.title("Input")
-    plt.imshow(img.cpu().numpy()[0, 0, :, :], cmap="gray")
-    plt.axis("off")
-
-    # panel 2: Ground truth (if available)
-    plt.subplot(1, 3, 2)
-    if mask_gt is not None:
-        plt.title("GT Mask")
-        plt.imshow(mask_gt, cmap="gray")
-    else:
-        plt.title("GT Mask (N/A)")
-        plt.imshow(np.zeros_like(pred_mask), cmap="gray")
-    plt.axis("off")
-
-    # panel 3: Predicted mask
-    plt.subplot(1, 3, 3)
-    plt.title("Pred Mask")
-    plt.imshow(pred_mask, cmap="gray")
-    plt.axis("off")
-
-    plt.tight_layout()
-    plt.savefig("prediction_example.png", dpi=200)
-    print(">> saved prediction_example.png")
-
-
-if __name__ == "__main__":
-    args = parse_args()
     run_inference(
         data_root=args.data_root,
-        sample_idx=args.idx,
-        ckpt_path=args.ckpt,
+        checkpoint_path=args.checkpoint,
+        out_path=args.out,
+        device=device,
     )
+
+if __name__ == "__main__":
+    main()
