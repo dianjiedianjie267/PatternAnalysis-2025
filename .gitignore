@@ -8,6 +8,6 @@ __pycache__/
 
 # Training artifacts
 best_model.pth
-training_curve.png
-prediction_example.png
+
+
 
